@@ -1,0 +1,20 @@
+git-monitor is polling {{ .Values.repoURL }} ({{ .Values.revision }}) every {{ .Values.pollInterval }}.
+
+Check it's running:
+  kubectl -n {{ .Release.Namespace }} logs deploy/{{ include "git-monitor.fullname" . }} -f
+
+{{- if .Values.dryRun }}
+
+dryRun is enabled: git-monitor is only logging what it *would* send to
+ArgoCD's webhook endpoint, without actually calling it. Once you've
+confirmed commits are being detected correctly, set `dryRun: false`
+(`--set dryRun=false`) and upgrade.
+{{- end }}
+
+{{- if not .Values.argocd.webhookURL }}
+
+argocd.webhookURL was left empty, so git-monitor is auto-discovering the
+argocd-server Service in the "{{ .Values.argocd.namespace }}" namespace. If
+that Service uses a self-signed certificate (the common case for the
+in-cluster address), you'll likely need `argocd.insecureSkipVerify: true`.
+{{- end }}

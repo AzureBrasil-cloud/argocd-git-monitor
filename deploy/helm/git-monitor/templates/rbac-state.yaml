@@ -1,0 +1,34 @@
+{{/*
+Access to git-monitor's own state Secret, in its own release namespace.
+Scoped to just that one Secret via resourceNames - the chart pre-creates it
+(see secret-state.yaml) precisely so the app never needs a broader "create"
+permission on Secrets.
+*/}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "git-monitor.fullname" . }}-state
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "git-monitor.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: [{{ .Values.state.secretName | quote }}]
+    verbs: ["get", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "git-monitor.fullname" . }}-state
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "git-monitor.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "git-monitor.fullname" . }}-state
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "git-monitor.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}

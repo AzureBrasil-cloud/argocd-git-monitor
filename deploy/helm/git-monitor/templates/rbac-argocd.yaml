@@ -1,0 +1,45 @@
+{{/*
+Read-only access into ArgoCD's own namespace: list its repository Secrets
+(to reuse their git credentials) and, when webhookURL isn't set explicitly,
+find the argocd-server Service to auto-discover it. This Role/RoleBinding
+pair lives in ArgoCD's namespace, which may differ from where git-monitor
+itself is installed - the RoleBinding's subject just points back at this
+release's ServiceAccount.
+*/}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "git-monitor.fullname" . }}-argocd-reader
+  namespace: {{ .Values.argocd.namespace }}
+  labels:
+    {{- include "git-monitor.labels" . | nindent 4 }}
+rules:
+  # NOTE: Kubernetes RBAC can't restrict "list"/"get" to Secrets matching a
+  # label selector - git-monitor only ever reads the label-selected
+  # repository Secrets in code, but this Role technically grants read access
+  # to every Secret in .Values.argocd.namespace (typically the "argocd"
+  # namespace, which usually holds little else). If that's too broad for
+  # your environment, run git-monitor with a namespace dedicated to ArgoCD's
+  # repository Secrets, or fork this Role to name specific resourceNames.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "git-monitor.fullname" . }}-argocd-reader
+  namespace: {{ .Values.argocd.namespace }}
+  labels:
+    {{- include "git-monitor.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "git-monitor.fullname" . }}-argocd-reader
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "git-monitor.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}

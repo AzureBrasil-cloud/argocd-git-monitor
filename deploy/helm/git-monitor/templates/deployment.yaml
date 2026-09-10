@@ -1,0 +1,103 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "git-monitor.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "git-monitor.labels" . | nindent 4 }}
+spec:
+  # No leader election - keep this at 1 unless you're fine with occasional
+  # duplicate (harmless) webhook calls.
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "git-monitor.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "git-monitor.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "git-monitor.serviceAccountName" . }}
+      securityContext:
+        runAsNonRoot: true
+        # Matches the numeric UID/GID the image's USER directive sets -
+        # spelled out explicitly so runAsNonRoot can be verified without the
+        # container runtime needing to resolve a named user from the image.
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: git-monitor
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: false # git-monitor writes a temp SSH keyfile per poll
+          ports:
+            - name: http
+              containerPort: 8080
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          env:
+            - name: GIT_MONITOR_REPO_URL
+              value: {{ required "repoURL is required" .Values.repoURL | quote }}
+            - name: GIT_MONITOR_REVISION
+              value: {{ .Values.revision | quote }}
+            - name: GIT_MONITOR_POLL_INTERVAL
+              value: {{ .Values.pollInterval | quote }}
+            - name: GIT_MONITOR_ARGOCD_NAMESPACE
+              value: {{ .Values.argocd.namespace | quote }}
+            - name: GIT_MONITOR_WEBHOOK_PROVIDER
+              value: {{ .Values.argocd.webhookProvider | quote }}
+            - name: GIT_MONITOR_WEBHOOK_URL
+              value: {{ .Values.argocd.webhookURL | quote }}
+            - name: GIT_MONITOR_WEBHOOK_USERNAME
+              value: {{ .Values.argocd.webhookUsername | quote }}
+            {{- if or .Values.argocd.webhookPasswordSecretName .Values.argocd.webhookPassword }}
+            - name: GIT_MONITOR_WEBHOOK_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "git-monitor.webhookSecretName" . }}
+                  key: {{ include "git-monitor.webhookSecretKey" . }}
+            {{- end }}
+            - name: GIT_MONITOR_ARGOCD_INSECURE_SKIP_VERIFY
+              value: {{ .Values.argocd.insecureSkipVerify | quote }}
+            - name: GIT_MONITOR_EXTRA_KNOWN_HOSTS
+              value: {{ .Values.extraKnownHosts | quote }}
+            - name: GIT_MONITOR_STATE_SECRET_NAME
+              value: {{ .Values.state.secretName | quote }}
+            - name: GIT_MONITOR_LOG_LEVEL
+              value: {{ .Values.logLevel | quote }}
+            - name: GIT_MONITOR_DRY_RUN
+              value: {{ .Values.dryRun | quote }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

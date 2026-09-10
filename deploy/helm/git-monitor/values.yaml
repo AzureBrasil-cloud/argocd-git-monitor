@@ -1,0 +1,80 @@
+# -- Container image
+image:
+  repository: azurebrasil/argocd-azdevops-git-monitor
+  tag: "1.0.2"
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+# git-monitor keeps its "last seen commit" state in a single Secret. Running
+# more than one replica just means duplicate (harmless, but wasteful) webhook
+# calls - there is no leader election.
+
+# -- Repository to watch (required)
+repoURL: ""
+# -- Branch/tag to watch. "HEAD" follows the remote's default branch.
+revision: HEAD
+# -- How often to run `git ls-remote`.
+pollInterval: 10s
+
+argocd:
+  # -- Namespace where ArgoCD (and its repository Secrets) live.
+  namespace: argocd
+  # -- Payload shape to send to ArgoCD's webhook endpoint. ArgoCD parses a
+  # different JSON shape (and looks for different signals) per git host -
+  # see internal/webhook in the source repo. Currently supported:
+  # "azuredevops".
+  webhookProvider: azuredevops
+  # -- Base URL of the ArgoCD server, e.g. "https://argocd.example.com".
+  # Leave empty to auto-discover the in-cluster argocd-server Service.
+  webhookURL: ""
+  # -- Basic-auth credentials for ArgoCD's /api/webhook endpoint, if
+  # configured. Prefer webhookPasswordSecretName over webhookPassword for
+  # anything beyond local testing. For the "azuredevops" provider this is
+  # what Azure DevOps Service Hooks authenticate with too (sent as standard
+  # HTTP Basic Auth, base64-encoded on the wire per RFC 7617).
+  webhookUsername: ""
+  webhookPassword: ""
+  # -- Name of an existing Secret with a "password" key, used instead of
+  # webhookPassword. Takes precedence when set.
+  webhookPasswordSecretName: ""
+  webhookPasswordSecretKey: password
+  # -- Skip TLS verification when calling the webhook endpoint. Usually
+  # needed when webhookURL is left empty (auto-discovered in-cluster
+  # Service, typically serving a self-signed certificate).
+  insecureSkipVerify: true
+
+# -- Extra known_hosts entries (raw text) for self-hosted git servers not
+# already trusted out of the box (GitHub, GitLab, Bitbucket, Azure DevOps
+# are built in).
+extraKnownHosts: ""
+
+state:
+  # -- Secret used to persist the last commit already reported, so a pod
+  # restart doesn't re-fire a webhook for a commit already handled. Created
+  # empty by this chart on install and left untouched on upgrades.
+  secretName: git-monitor-state
+
+# -- Log verbosely (debug|info|warn|error).
+logLevel: info
+
+# -- Log what would be sent instead of calling the webhook. Useful to
+# validate a new install before letting it trigger real ArgoCD syncs.
+dryRun: false
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
+  limits:
+    memory: 64Mi
+
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
