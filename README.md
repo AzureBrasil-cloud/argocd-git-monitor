@@ -43,45 +43,12 @@ git-monitor doesn't know or care about Azure DevOps, Terraform, or any
 particular ArgoCD install - it only needs a repo URL and network access to
 your cluster's Kubernetes API and ArgoCD server.
 
-## Image
-
-Published to Docker Hub as
-[`azurebrasil/argocd-azdevops-git-monitor`](https://hub.docker.com/r/azurebrasil/argocd-azdevops-git-monitor)
-by [`.github/workflows/docker-publish.yml`](.github/workflows/docker-publish.yml)
-on every push to `main` (tagged `edge`) and on `vX.Y.Z` tags (tagged
-`X.Y.Z`, `X.Y`, and `latest`). Publishing needs two repository secrets set
-under *Settings → Secrets and variables → Actions*:
-
-- `DOCKERHUB_USERNAME` - a Docker Hub username with push access to the repo
-- `DOCKERHUB_TOKEN` - a Docker Hub [access token](https://hub.docker.com/settings/security), not the account password
-
-To build it locally instead:
-
-```bash
-docker build -t azurebrasil/argocd-azdevops-git-monitor:dev .
-```
-
-## Helm chart
-
-Published as a classic Helm repository on GitHub Pages by
-[`.github/workflows/chart-release.yml`](.github/workflows/chart-release.yml)
-(via [helm/chart-releaser-action](https://github.com/helm/chart-releaser-action))
-every time `deploy/helm/git-monitor/**` changes on `main` - bump
-[`Chart.yaml`](deploy/helm/git-monitor/Chart.yaml)'s `version` to publish a
-new release; it's a no-op if that version was already published. One-time
-repo setup: *Settings → Actions → General → Workflow permissions* → "Read
-and write permissions" (needed to push the `gh-pages` branch and create
-releases), then after the first run, *Settings → Pages* → source =
-`gh-pages` branch, `/ (root)`.
-
-```bash
-helm repo add git-monitor https://azurebrasil-cloud.github.io/git-monitor/
-helm repo update
-```
-
 ## Install
 
 ```bash
+helm repo add git-monitor https://azurebrasil-cloud.github.io/argocd-git-monitor/
+helm repo update
+
 helm install git-monitor git-monitor/git-monitor \
   --namespace git-monitor --create-namespace \
   --set repoURL=git@github.com:your-org/your-gitops-repo \
@@ -99,10 +66,18 @@ namespace, `argocd.namespace`. Everything else has a sensible default:
   usually serves a self-signed certificate, so you'll likely also want
   `argocd.insecureSkipVerify=true` unless you point `webhookURL` at a
   properly-certificated public endpoint instead.
-- If your ArgoCD's webhook endpoint requires basic auth, set
-  `argocd.webhookUsername` and either `argocd.webhookPassword` (fine for a
-  quick test) or `argocd.webhookPasswordSecretName` (points at an existing
-  Secret - preferred for anything beyond local testing).
+- `argocd.webhookUsername`/`webhookPassword` are **only required if your
+  ArgoCD install itself was configured with webhook credentials** (e.g.
+  `webhook.azuredevops.username`/`.password` in the argo-helm chart values
+  - `argocd-cm`/`argocd-secret` is where to check). If it wasn't, leave
+  these empty; ArgoCD's webhook parser skips auth entirely when no
+  username/password is configured on its side, and git-monitor mirrors
+  that - it only sends an `Authorization` header when you set one of these.
+  If your ArgoCD *does* require it and these are missing or wrong, the
+  webhook call fails with `401 Unauthorized` (git-monitor logs it and
+  retries next poll, but the sync stays stuck until fixed). Use
+  `webhookPassword` for a quick test, `webhookPasswordSecretName` (points
+  at an existing Secret) for anything beyond that.
 
 **First install on a new repo/cluster?** Set `--set dryRun=true` first, watch
 the logs to confirm commits are detected and the payload looks right, then
@@ -129,8 +104,8 @@ for the Helm-side names).
 | `GIT_MONITOR_STATE_SECRET_NAME` | `git-monitor-state` | Secret (in git-monitor's own namespace) used to persist the last commit reported. |
 | `GIT_MONITOR_NAMESPACE` | *(auto)* | git-monitor's own namespace. Auto-detected from the pod's service account when unset. |
 | `GIT_MONITOR_WEBHOOK_URL` | *(auto-discovered)* | ArgoCD base URL, e.g. `https://argocd.example.com`. Auto-discovered from the `argocd-server` Service when unset. |
-| `GIT_MONITOR_WEBHOOK_USERNAME` | *(empty)* | Basic-auth username for ArgoCD's webhook endpoint, if configured. |
-| `GIT_MONITOR_WEBHOOK_PASSWORD` | *(empty)* | Basic-auth password for ArgoCD's webhook endpoint, if configured. |
+| `GIT_MONITOR_WEBHOOK_USERNAME` | *(empty)* | Basic-auth username. **Required only if your ArgoCD's webhook endpoint was configured with one** - otherwise leave unset. Wrong/missing value when required → `401 Unauthorized`. |
+| `GIT_MONITOR_WEBHOOK_PASSWORD` | *(empty)* | Basic-auth password. Same conditional requirement as `GIT_MONITOR_WEBHOOK_USERNAME` above. |
 | `GIT_MONITOR_ARGOCD_INSECURE_SKIP_VERIFY` | `false` | Skip TLS verification when calling the webhook endpoint. Usually needed with an auto-discovered in-cluster URL. |
 | `GIT_MONITOR_DRY_RUN` | `false` | Log what would be sent instead of calling the webhook. |
 | `GIT_MONITOR_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, or `error`. |
@@ -146,7 +121,7 @@ your repo is actually hosted.
 
 | Provider | `webhookProvider` value | Auth |
 |---|---|---|
-| Azure DevOps | `azuredevops` (default) | HTTP Basic Auth (`webhookUsername`/`webhookPassword`, base64-encoded on the wire per RFC 7617) - the same credentials Azure DevOps Service Hooks would use, and what ArgoCD's `webhook.azuredevops` chart config expects. |
+| Azure DevOps | `azuredevops` (default) | HTTP Basic Auth (`webhookUsername`/`webhookPassword`, base64-encoded on the wire per RFC 7617), *if* your ArgoCD's `webhook.azuredevops.username`/`.password` chart config is set. Optional otherwise - see the config reference table above. |
 
 Only `azuredevops` is implemented today. Adding another provider (GitHub,
 GitLab, Bitbucket, ...) is a self-contained addition: implement a `builder`
@@ -180,7 +155,7 @@ allows:
   [Webhook providers](#webhook-providers) for what that means and how to
   add another.
 
-## Repository layout
+## Project layout
 
 ```
 cmd/git-monitor/       entrypoint and poll loop
@@ -192,6 +167,30 @@ internal/webhook/      builds and sends the ArgoCD webhook payload
 internal/health/       /healthz for liveness/readiness probes
 deploy/helm/git-monitor/  Helm chart
 ```
+
+## Contributing
+
+Contributions are welcome - open an issue or a PR.
+
+```bash
+go build ./... && go vet ./... && go test ./...
+docker build -t argocd-git-monitor:dev .
+helm lint deploy/helm/git-monitor --set repoURL=git@example.com:org/repo
+```
+
+Releasing (maintainers only):
+
+- **Image** - [`.github/workflows/docker-publish.yml`](.github/workflows/docker-publish.yml)
+  publishes to Docker Hub on every push to `main` (tag `edge`) and on
+  `vX.Y.Z` tags (tags `X.Y.Z`, `X.Y`, `latest`). Needs repo secrets
+  `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN`.
+- **Helm chart** - [`.github/workflows/chart-release.yml`](.github/workflows/chart-release.yml)
+  publishes `deploy/helm/git-monitor` to a Helm repo on GitHub Pages
+  whenever its `version` in `Chart.yaml` changes on `main` (a no-op if that
+  version was already published). One-time setup: *Settings → Actions →
+  General → Workflow permissions* → "Read and write permissions", then
+  after the first run, *Settings → Pages* → source = `gh-pages` branch,
+  `/ (root)`.
 
 ## License
 
