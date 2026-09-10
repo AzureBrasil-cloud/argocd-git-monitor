@@ -45,18 +45,17 @@ your cluster's Kubernetes API and ArgoCD server.
 
 ## Install
 
-```bash
-helm repo add git-monitor https://azurebrasil-cloud.github.io/argocd-git-monitor/
-helm repo update
+Published as an OCI chart on Docker Hub (`oci://registry-1.docker.io/azurebrasil/git-monitor`) - OCI references always need an explicit `--version`, there's no "latest" to fall back on:
 
-helm install git-monitor git-monitor/git-monitor \
+```bash
+helm install git-monitor oci://registry-1.docker.io/azurebrasil/git-monitor --version 0.1.0 \
   --namespace git-monitor --create-namespace \
   --set repoURL=git@github.com:your-org/your-gitops-repo \
   --set argocd.namespace=argocd
 ```
 
 (swap the chart reference for `./deploy/helm/git-monitor` to install straight
-from a checkout instead of the published repo.)
+from a checkout instead of the published one.)
 
 That's the minimum: `repoURL` and, if ArgoCD isn't in the `argocd`
 namespace, `argocd.namespace`. Everything else has a sensible default:
@@ -184,13 +183,16 @@ Releasing (maintainers only):
   publishes to Docker Hub on every push to `main` (tag `edge`) and on
   `vX.Y.Z` tags (tags `X.Y.Z`, `X.Y`, `latest`). Needs repo secrets
   `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN`.
-- **Helm chart** - [`.github/workflows/chart-release.yml`](.github/workflows/chart-release.yml)
-  publishes `deploy/helm/git-monitor` to a Helm repo on GitHub Pages
-  whenever its `version` in `Chart.yaml` changes on `main` (a no-op if that
-  version was already published). One-time setup: *Settings → Actions →
-  General → Workflow permissions* → "Read and write permissions", then
-  after the first run, *Settings → Pages* → source = `gh-pages` branch,
-  `/ (root)`.
+- **Helm chart** - [`.github/workflows/chart-publish.yml`](.github/workflows/chart-publish.yml)
+  packages `deploy/helm/git-monitor` and pushes it as an OCI artifact to
+  `oci://registry-1.docker.io/azurebrasil/git-monitor` on every push that
+  touches the chart, reusing the same two Docker Hub secrets as the image
+  workflow - no separate setup, and no GitHub repo permission changes
+  needed (unlike a classic GitHub Pages Helm repo via
+  `helm/chart-releaser-action`, which needs *Settings → Actions →
+  Workflow permissions* set to "Read and write," not always changeable
+  under an org-wide policy). OCI tags are mutable, so pushing again without
+  bumping `version` in `Chart.yaml` just overwrites that version.
 
 ## License
 

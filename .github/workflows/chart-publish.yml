@@ -1,0 +1,40 @@
+name: chart-publish
+
+# Publishes deploy/helm/git-monitor as an OCI artifact to Docker Hub
+# (oci://registry-1.docker.io/azurebrasil/git-monitor), the same way
+# bitnami charts are distributed. Chosen over a classic GitHub Pages Helm
+# repo because it reuses the DOCKERHUB_USERNAME/DOCKERHUB_TOKEN secrets
+# already used by docker-publish.yml, and needs no GitHub repo permission
+# changes at all (unlike helm/chart-releaser-action, which needs
+# Settings -> Actions -> Workflow permissions set to "Read and write" to
+# push a gh-pages branch and create Releases via GITHUB_TOKEN - not always
+# available to change, e.g. under an org-wide policy).
+#
+# Every push touching the chart re-publishes it under Chart.yaml's current
+# `version` (OCI tags are mutable, so this simply overwrites that version's
+# content if you push again without bumping it - bump `version` for an
+# actual new release).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "deploy/helm/git-monitor/**"
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+
+      - name: Log in to Docker Hub
+        run: |
+          echo "${{ secrets.DOCKERHUB_TOKEN }}" | helm registry login registry-1.docker.io \
+            --username "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+
+      - name: Package and push chart
+        run: |
+          helm package deploy/helm/git-monitor -d dist
+          helm push dist/*.tgz oci://registry-1.docker.io/azurebrasil
