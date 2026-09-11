@@ -2,7 +2,7 @@ apiVersion: v2
 name: git-monitor
 description: Polls a git repository and fires ArgoCD's own webhook endpoint as a fast, reliable fallback for slow or unreliable CI/CD webhook delivery.
 type: application
-version: 0.1.0
+version: 0.1.1
 appVersion: "0.1.0"
 home: https://github.com/AzureBrasil-cloud/argocd-git-monitor
 sources:
